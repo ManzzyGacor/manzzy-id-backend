@@ -1,12 +1,10 @@
-// api/routes/dashboardRoutes.js
+// api/routes/dashboardRoutes.js (VERSI STOK HITUNGAN SEDERHANA)
 const express = require('express');
 const router = express.Router();
 const { protect, admin } = require('../middleware/authMiddleware');
 const User = require('../models/User');
 const Product = require('../models/Product');
 const Information = require('../models/Information');
-const Invoice = require('../models/Invoice');
-const StockItem = require('../models/StockItem');
 const mongoose = require('mongoose');
 
 // --- USER ENDPOINTS (PROTECTED) ---
@@ -15,7 +13,7 @@ const mongoose = require('mongoose');
 router.get('/dashboard-data', protect, async (req, res) => {
   
   // =========================================================================
-  // BARIS INI HANYA UNTUK MEMAKSA CACHE VERCEL DI-RESET (HAPUS SETELAH PRODUK MUNCUL)
+  // BARIS INI HANYA UNTUK MEMAKSA CACHE VERCEL DI-RESET (HAPUS SETELAH BERHASIL)
   const clearCache = Date.now(); 
   // =========================================================================
 
@@ -44,7 +42,7 @@ router.get('/dashboard-data', protect, async (req, res) => {
   }
 });
 
-// @route   POST /api/data/purchase
+// @route   POST /api/data/purchase (LOGIKA PEMBELIAN SEDERHANA)
 router.post('/purchase', protect, async (req, res) => {
     const { productId, quantity } = req.body;
     const session = await mongoose.startSession();
@@ -65,67 +63,28 @@ router.post('/purchase', protect, async (req, res) => {
         // 1. Validasi Stok (Hitungan) dan Saldo
         if (product.stock < quantity) {
             await session.abortTransaction();
-            return res.status(400).json({ message: 'Stok hitungan produk tidak mencukupi.' });
+            return res.status(400).json({ message: 'Stok produk tidak mencukupi.' });
         }
         if (user.saldo < totalCost) {
             await session.abortTransaction();
             return res.status(400).json({ message: 'Saldo tidak mencukupi untuk transaksi ini.' });
         }
-
-        // 2. Ambil Item Stok Unik (CARI item yang belum terjual)
-        const stockItems = await StockItem.find({ 
-            product: productId, 
-            isSold: false 
-        }).limit(quantity).session(session);
-
-        if (stockItems.length < quantity) {
-            await session.abortTransaction();
-            return res.status(400).json({ message: 'Stok fisik (kode unik) tidak mencukupi. Hubungi Admin.' });
-        }
         
-        // 3. Update Status Item (Tandai sebagai Terjual)
-        const itemIds = stockItems.map(item => item._id);
-
-        await StockItem.updateMany(
-            { _id: { $in: itemIds } },
-            { $set: { 
-                isSold: true, 
-                soldTo: user._id, 
-                soldDate: new Date() 
-            }},
-            { session }
-        );
-
-        // 4. Update Saldo & Stok Produk Hitungan
+        // 2. Eksekusi Transaksi (MENGURANGI SALDO DAN STOK HITUNGAN SAJA)
         user.saldo -= totalCost;
         user.transaksi += 1;
-        product.stock -= quantity;
-
-        // 5. Buat Invoice
-        const invoiceNumber = `INV-${Date.now()}`;
-        const invoice = new Invoice({
-            user: user._id,
-            product: product._id,
-            quantity: quantity,
-            totalAmount: totalCost,
-            invoiceNumber: invoiceNumber,
-            status: 'PAID',
-            distributedItems: itemIds 
-        });
+        product.stock -= quantity; 
 
         await user.save({ session });
         await product.save({ session });
-        await invoice.save({ session });
 
         await session.commitTransaction();
 
         res.json({ 
-            message: `Pembelian sukses! Item dikirim melalui invoice.`, 
-            invoice: {
-                invoiceNumber: invoice.invoiceNumber,
+            message: `Pembelian sukses! ${quantity} unit ${product.name} dikurangi dari stok hitungan.`, 
+            purchaseDetails: {
                 productName: product.name,
-                totalAmount: totalCost,
-                quantity: quantity
+                totalAmount: totalCost
             }
         });
 
@@ -134,25 +93,6 @@ router.post('/purchase', protect, async (req, res) => {
         res.status(500).json({ message: 'Server error saat memproses pembelian.' });
     } finally {
         session.endSession();
-    }
-});
-
-// @route   GET /api/data/invoice/:invoiceNumber
-router.get('/invoice/:invoiceNumber', protect, async (req, res) => {
-    try {
-        const invoice = await Invoice.findOne({ invoiceNumber: req.params.invoiceNumber, user: req.user._id })
-            .populate('product', 'name price imageURL')
-            .populate({ 
-                path: 'distributedItems',
-                select: 'uniqueData'
-            })
-            .select('-__v');
-
-        if (!invoice) return res.status(404).json({ message: 'Invoice tidak ditemukan.' });
-
-        res.json(invoice);
-    } catch (error) {
-        res.status(500).json({ message: 'Server error saat mengambil data invoice.' });
     }
 });
 
@@ -188,15 +128,13 @@ router.post('/admin/add-saldo', protect, admin, async (req, res) => {
 });
 
 
-// --------------------------------------------------------
-// --- CRUD PRODUK (ADMIN) ---
-
 // @route   POST /api/data/admin/products
 router.post('/admin/products', protect, admin, async (req, res) => {
-    const { name, price, description, imageURL } = req.body;
+    const { name, price, description, imageURL, stock } = req.body;
     try {
-        const product = await Product.create({ name, price, description, imageURL, stock: 0 }); // Stock dibuat dari item unik
-        res.status(201).json({ message: 'Produk berhasil ditambahkan! Stok awal 0.', product });
+        // Menerima STOK awal langsung dari form Admin
+        const product = await Product.create({ name, price, description, imageURL, stock: stock || 0 }); 
+        res.status(201).json({ message: 'Produk berhasil ditambahkan! Stok awal diatur.', product });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -213,40 +151,6 @@ router.delete('/admin/products/:id', protect, admin, async (req, res) => {
     }
 });
 
-// --------------------------------------------------------
-// --- TAMBAH STOK ITEM UNIK (ADMIN) ---
-
-// @route   POST /api/data/admin/add-stock-item
-router.post('/admin/add-stock-item', protect, admin, async (req, res) => {
-    const { productId, items } = req.body;
-
-    try {
-        const product = await Product.findById(productId);
-        if (!product) return res.status(404).json({ message: 'Produk tidak ditemukan.' });
-
-        const stockDocuments = items.map(itemData => ({
-            product: productId,
-            uniqueData: itemData,
-            isSold: false
-        }));
-
-        const insertedItems = await StockItem.insertMany(stockDocuments);
-        
-        // Update hitungan stok di model Product
-        product.stock += insertedItems.length;
-        await product.save();
-
-        res.status(201).json({ 
-            message: `${insertedItems.length} item stok unik berhasil ditambahkan untuk produk ${product.name}. Stok total: ${product.stock}` 
-        });
-
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-});
-
-// --------------------------------------------------------
-// --- CRUD INFORMASI (ADMIN) ---
 
 // @route   POST /api/data/admin/info
 router.post('/admin/info', protect, admin, async (req, res) => {
