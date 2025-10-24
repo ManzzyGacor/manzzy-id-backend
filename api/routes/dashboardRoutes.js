@@ -13,9 +13,19 @@ const mongoose = require('mongoose');
 
 // @route   GET /api/data/dashboard-data
 router.get('/dashboard-data', protect, async (req, res) => {
+  
+  // =========================================================================
+  // BARIS INI HANYA UNTUK MEMAKSA CACHE VERCEL DI-RESET (HAPUS SETELAH PRODUK MUNCUL)
+  const clearCache = Date.now(); 
+  // =========================================================================
+
   try {
     const user = await User.findById(req.user._id).select('-password'); 
-    const products = await Product.find({ stock: { $gt: 0 } }).select('-createdAt -__v');
+    
+    // Ambil semua produk yang memiliki stok hitungan > 0
+    const products = await Product.find({ stock: { $gt: 0 } }).select('-createdAt -__v'); 
+    
+    // Ambil informasi terbaru
     const info = await Information.find({}).sort({ createdAt: -1 }).select('-__v');
 
     if (user) {
@@ -45,19 +55,24 @@ router.post('/purchase', protect, async (req, res) => {
         const product = await Product.findById(productId).session(session);
         const user = await User.findById(req.user._id).session(session);
 
-        if (!product || product.stock < quantity) {
+        if (!product) {
             await session.abortTransaction();
-            return res.status(400).json({ message: 'Stok hitungan produk tidak mencukupi atau produk tidak valid.' });
+            return res.status(404).json({ message: 'Produk tidak ditemukan.' });
         }
-
+        
         const totalCost = product.price * quantity;
 
+        // 1. Validasi Stok (Hitungan) dan Saldo
+        if (product.stock < quantity) {
+            await session.abortTransaction();
+            return res.status(400).json({ message: 'Stok hitungan produk tidak mencukupi.' });
+        }
         if (user.saldo < totalCost) {
             await session.abortTransaction();
             return res.status(400).json({ message: 'Saldo tidak mencukupi untuk transaksi ini.' });
         }
 
-        // 1. Ambil Item Stok Unik
+        // 2. Ambil Item Stok Unik (CARI item yang belum terjual)
         const stockItems = await StockItem.find({ 
             product: productId, 
             isSold: false 
@@ -68,7 +83,7 @@ router.post('/purchase', protect, async (req, res) => {
             return res.status(400).json({ message: 'Stok fisik (kode unik) tidak mencukupi. Hubungi Admin.' });
         }
         
-        // 2. Update Status Item (Tandai sebagai Terjual)
+        // 3. Update Status Item (Tandai sebagai Terjual)
         const itemIds = stockItems.map(item => item._id);
 
         await StockItem.updateMany(
@@ -81,12 +96,12 @@ router.post('/purchase', protect, async (req, res) => {
             { session }
         );
 
-        // 3. Update Saldo & Stok Produk Hitungan
+        // 4. Update Saldo & Stok Produk Hitungan
         user.saldo -= totalCost;
         user.transaksi += 1;
         product.stock -= quantity;
 
-        // 4. Buat Invoice
+        // 5. Buat Invoice
         const invoiceNumber = `INV-${Date.now()}`;
         const invoice = new Invoice({
             user: user._id,
@@ -95,7 +110,7 @@ router.post('/purchase', protect, async (req, res) => {
             totalAmount: totalCost,
             invoiceNumber: invoiceNumber,
             status: 'PAID',
-            distributedItems: itemIds // Simpan ID item yang didistribusikan
+            distributedItems: itemIds 
         });
 
         await user.save({ session });
@@ -178,7 +193,7 @@ router.post('/admin/add-saldo', protect, admin, async (req, res) => {
 
 // @route   POST /api/data/admin/products
 router.post('/admin/products', protect, admin, async (req, res) => {
-    const { name, price, description, imageURL, stock } = req.body;
+    const { name, price, description, imageURL } = req.body;
     try {
         const product = await Product.create({ name, price, description, imageURL, stock: 0 }); // Stock dibuat dari item unik
         res.status(201).json({ message: 'Produk berhasil ditambahkan! Stok awal 0.', product });
@@ -190,7 +205,6 @@ router.post('/admin/products', protect, admin, async (req, res) => {
 // @route   DELETE /api/data/admin/products/:id
 router.delete('/admin/products/:id', protect, admin, async (req, res) => {
     try {
-        // PERHATIAN: Hapus produk TIDAK otomatis menghapus StockItem-nya, perlu dibersihkan manual di DB
         const result = await Product.findByIdAndDelete(req.params.id);
         if (!result) return res.status(404).json({ message: 'Produk tidak ditemukan.' });
         res.json({ message: 'Produk berhasil dihapus.' });
