@@ -1,15 +1,15 @@
-// api/routes/dashboardRoutes.js (LENGKAP FINAL - Verifikasi Saldo)
+// api/routes/dashboardRoutes.js (LENGKAP FINAL - 25 Oktober 2025)
 const express = require('express');
 const router = express.Router();
 // Pastikan middleware diimport dengan benar
-const { protect, admin } = require('../middleware/authMiddleware'); 
+const { protect, admin } = require('../middleware/authMiddleware');
 // Pastikan semua model diimport dengan benar
 const User = require('../models/User');
 const Product = require('../models/Product');
 const Information = require('../models/Information');
 const Server = require('../models/Server'); // Pastikan Server model ada
 // Pastikan service Pterodactyl diimport dengan benar
-const pteroService = require('../services/pterodactylService'); 
+const pteroService = require('../services/pterodactylService');
 const mongoose = require('mongoose');
 
 // --- USER ENDPOINTS (PROTECTED) ---
@@ -24,12 +24,12 @@ router.get('/dashboard-data', protect, async (req, res) => {
         console.error("Error di /dashboard-data: req.user atau req.user._id tidak ditemukan.");
         return res.status(401).json({ message: 'User tidak terautentikasi dengan benar.' });
     }
-    
-    const user = await User.findById(req.user._id).select('-password'); 
-    
+
+    const user = await User.findById(req.user._id).select('-password');
+
     // Ambil produk yang stoknya lebih dari 0
-    const products = await Product.find({ stock: { $gt: 0 } }).select('-createdAt -__v'); 
-    
+    const products = await Product.find({ stock: { $gt: 0 } }).select('-createdAt -__v');
+
     // Ambil info terbaru
     const info = await Information.find({}).sort({ createdAt: -1 }).select('-__v');
 
@@ -37,68 +37,88 @@ router.get('/dashboard-data', protect, async (req, res) => {
         console.error(`Error di /dashboard-data: User dengan ID ${req.user._id} tidak ditemukan di DB.`);
         return res.status(404).json({ message: 'Pengguna tidak ditemukan' });
     }
-    
+
     // Pastikan saldo ada dan merupakan angka, jika tidak default ke 0
     const userSaldo = (typeof user.saldo === 'number') ? user.saldo : 0;
     const userTransaksi = (typeof user.transaksi === 'number') ? user.transaksi : 0;
-    
-    res.json({ 
-        username: user.username, 
+
+    res.json({
+        username: user.username,
         saldo: userSaldo, // Kirim saldo yang sudah divalidasi
         transaksi: userTransaksi, // Kirim transaksi yang sudah divalidasi
-        products, 
-        information: info 
+        products,
+        information: info
     });
-  } catch (error) { 
+  } catch (error) {
       console.error("Error fetching dashboard data:", error);
-      res.status(500).json({ message: "Gagal mengambil data dashboard: " + error.message }); 
+      res.status(500).json({ message: "Gagal mengambil data dashboard: " + error.message });
   }
 });
 
 // @route   POST /api/data/purchase (Pembelian Produk Biasa)
+// @desc    Memproses pembelian produk biasa (mengurangi stok hitungan)
 router.post('/purchase', protect, async (req, res) => {
-    // ... (Logika pembelian produk biasa tetap sama) ...
     const { productId, quantity } = req.body;
-    if (!productId || !quantity || quantity <= 0) return res.status(400).json({ message: 'Data produk atau jumlah tidak valid.' });
+    // Validasi input dasar
+    if (!productId || !quantity || quantity <= 0) {
+        return res.status(400).json({ message: 'Data produk atau jumlah tidak valid.' });
+    }
     const session = await mongoose.startSession();
     try {
         session.startTransaction();
         const product = await Product.findById(productId).session(session);
         const user = await User.findById(req.user._id).session(session);
+
         if (!product) { await session.abortTransaction(); return res.status(404).json({ message: 'Produk tidak ditemukan.' }); }
         if (!user) { await session.abortTransaction(); return res.status(404).json({ message: 'User tidak ditemukan.' }); }
+
         const totalCost = product.price * quantity;
         if (product.stock < quantity) { await session.abortTransaction(); return res.status(400).json({ message: 'Stok produk tidak mencukupi.' }); }
         if (user.saldo < totalCost) { await session.abortTransaction(); return res.status(400).json({ message: 'Saldo tidak mencukupi.' }); }
+
         user.saldo -= totalCost;
         user.transaksi += 1;
         product.stock -= quantity;
+
         await user.save({ session });
         await product.save({ session });
         await session.commitTransaction();
         res.json({ message: `Pembelian sukses! ${quantity} unit ${product.name} dikurangi.`, purchaseDetails: { productName: product.name, totalAmount: totalCost } });
-    } catch (error) { await session.abortTransaction(); console.error("Error during simple purchase:", error); res.status(500).json({ message: "Gagal memproses pembelian produk: " + error.message }); } finally { session.endSession(); }
+    } catch (error) {
+        await session.abortTransaction();
+        console.error("Error during simple purchase:", error);
+        res.status(500).json({ message: "Gagal memproses pembelian produk: " + error.message });
+    } finally {
+        session.endSession();
+    }
 });
 
-// @route   POST /api/data/purchase/pterodactyl (PEMBELIAN SERVER PTERODACTYL)
+// @route   POST /api/data/purchase/pterodactyl (PEMBELIAN SERVER PTERODACTYL - Menggunakan Locations & Password Predictable)
+// @desc    Memproses pembelian server Pterodactyl
 router.post('/purchase/pterodactyl', protect, async (req, res) => {
     const { packageId, serverName } = req.body;
-    if (!packageId || !serverName || serverName.trim().length < 3) return res.status(400).json({ message: 'Paket atau nama server tidak valid (min 3 karakter).' });
+    // Validasi input dasar
+    if (!packageId || !serverName || serverName.trim().length < 3) {
+        return res.status(400).json({ message: 'Paket atau nama server tidak valid (min 3 karakter).' });
+    }
     const session = await mongoose.startSession();
 
     // --- DEFINISI PAKET SERVER ASLI (NODE WA - Pakai Locations) ---
     // 🚨 WAJIB GANTI ID & KONFIGURASI SESUAI PTERODACTYL PANEL ANDA! 🚨
-    const EGG_ID_WHATSAPP = 15;      
-    const NEST_ID_WHATSAPP = 5;       
-    const LOCATION_ID_DEFAULT = 1;    // <<< GANTI DENGAN LOCATION ID KAMU! >>>
-    const DOCKER_IMAGE_NODEJS = 'ghcr.io/parkervcp/yolks:nodejs_24'; 
+    const EGG_ID_WHATSAPP = 15;      // ID Egg WA kamu
+    const NEST_ID_WHATSAPP = 5;       // ID Nest WA kamu
+    const LOCATION_ID_DEFAULT = 1;    // <<< GANTI DENGAN LOCATION ID KAMU YANG VALID! >>>
+
+    // Konfigurasi Baru untuk Node.js/WhatsApp Bot (SESUAIKAN!)
+    const DOCKER_IMAGE_NODEJS = 'ghcr.io/parkervcp/yolks:nodejs_24'; // Versi Node.js 24
     const STARTUP_NODEJS = 'if [[ -d .git ]] && [[ {{AUTO_UPDATE}} == "1" ]]; then git pull; fi; if [[ ! -z ${NODE_PACKAGES} ]]; then /usr/local/bin/npm install ${NODE_PACKAGES}; fi; if [[ ! -z ${UNNODE_PACKAGES} ]]; then /usr/local/bin/npm uninstall ${UNNODE_PACKAGES}; fi; if [ -f /home/container/package.json ]; then /usr/local/bin/npm install; fi;  if [[ ! -z ${CUSTOM_ENVIRONMENT_VARIABLES} ]]; then      vars=$(echo ${CUSTOM_ENVIRONMENT_VARIABLES} | tr ";" "\\n");      for line in $vars;     do export $line;     done fi;  /usr/local/bin/${CMD_RUN};';
+    // Environment diisi sesuai kebutuhan Egg (CMD_RUN wajib)
     const ENVIRONMENT_DEFAULT = { CMD_RUN: "node index.js" }; // GANTI 'node index.js' JIKA PERLU!
-    const FEATURE_LIMITS_DEFAULT = { databases: 0, backups: 1, allocations: 1 }; 
-    const IO_DEFAULT = 500; 
+    const FEATURE_LIMITS_DEFAULT = { databases: 0, backups: 1, allocations: 1 }; // Sesuaikan
+    const IO_DEFAULT = 500; // Default IO Pterodactyl
 
     const SERVER_PACKAGES = {
-        'ram_1gb': { name: 'Node WA 1GB', price: 1000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 1024, disk: 5120, cpu: 100, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, environment: ENVIRONMENT_DEFAULT, locationId: LOCATION_ID_DEFAULT }, 
+        'ram_1gb': { name: 'Node WA 1GB', price: 1000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 1024, disk: 5120, cpu: 100, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, environment: ENVIRONMENT_DEFAULT, locationId: LOCATION_ID_DEFAULT },
         'ram_2gb': { name: 'Node WA 2GB', price: 2000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 2048, disk: 10240, cpu: 150, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, environment: ENVIRONMENT_DEFAULT, locationId: LOCATION_ID_DEFAULT },
         'ram_3gb': { name: 'Node WA 3GB', price: 3000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 3072, disk: 15360, cpu: 200, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, environment: ENVIRONMENT_DEFAULT, locationId: LOCATION_ID_DEFAULT },
         'ram_4gb': { name: 'Node WA 4GB', price: 4000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 4096, disk: 20480, cpu: 250, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, environment: ENVIRONMENT_DEFAULT, locationId: LOCATION_ID_DEFAULT },
@@ -126,20 +146,20 @@ router.post('/purchase/pterodactyl', protect, async (req, res) => {
         user.transaksi += 1;
         await user.save({ session });
 
-        // 2. Dapatkan/Buat User Pterodactyl (ASLI)
-        const pteroUserResult = await pteroService.getOrCreatePteroUser(user);
-        if (!pteroUserResult || !pteroUserResult.id) { throw new Error('Gagal mendapatkan ID User Pterodactyl.'); }
-        
+        // 2. BUAT USER PTERODACTYL BARU (Setiap Saat!)
+        const pteroUserResult = await pteroService.createNewPteroUserForServer(user.username, serverName.trim());
+        if (!pteroUserResult || !pteroUserResult.id) { throw new Error('Gagal membuat User Pterodactyl baru.'); }
+
         const pteroCredentials = {
             username: pteroUserResult.username,
-            password: pteroUserResult.existing ? null : pteroUserResult.password
+            password: pteroUserResult.password // Password selalu ada
         };
 
-        // 3. Buat Server di Pterodactyl (ASLI - Egg Dinamis & Locations)
+        // 3. Buat Server di Pterodactyl (Milik user baru)
         const pteroServerId = await pteroService.createNewServer(
             pteroUserResult.id,
             serverName.trim(),
-            selectedPackage 
+            selectedPackage
         );
 
         // 4. Simpan Data Server ke Database Anda
@@ -148,16 +168,17 @@ router.post('/purchase/pterodactyl', protect, async (req, res) => {
             productName: selectedPackage.name + ` (${serverName.trim()})`,
             pterodactylServerId: pteroServerId.toString(),
             pterodactylUserId: pteroUserResult.id.toString(),
-            renewalDate: new Date(new Date().setMonth(new Date().getMonth() + 1)), 
+            renewalDate: new Date(new Date().setMonth(new Date().getMonth() + 1)),
             status: 'installing'
         });
         await serverEntry.save({ session });
 
         await session.commitTransaction();
-        res.json({ 
-            message: `Server ${selectedPackage.name} berhasil dipesan! Instalasi sedang berlangsung.`, 
+
+        res.json({
+            message: `Server ${selectedPackage.name} berhasil dipesan! Akun Pterodactyl baru telah dibuat.`,
             server: serverEntry,
-            pterodactylCredentials: pteroCredentials 
+            pterodactylCredentials: pteroCredentials
         });
 
     } catch (error) {
@@ -170,6 +191,7 @@ router.post('/purchase/pterodactyl', protect, async (req, res) => {
 });
 
 // @route   GET /api/data/user-servers
+// @desc    Mengambil daftar server Pterodactyl milik user
 router.get('/user-servers', protect, async (req, res) => {
     try {
         const servers = await Server.find({ user: req.user._id }).sort({ createdAt: -1 }).select('-__v');
@@ -181,29 +203,47 @@ router.get('/user-servers', protect, async (req, res) => {
 });
 
 // @route   POST /api/data/server-control
+// @desc    Mengirim perintah start/stop/restart ke server Pterodactyl
 router.post('/server-control', protect, async (req, res) => {
-    const { serverId, command } = req.body;
+    const { serverId, command } = req.body; // serverId adalah Pterodactyl Server ID (string/number)
     const validCommands = ['start', 'stop', 'restart', 'kill'];
-    if (!serverId || !command || !validCommands.includes(command)) return res.status(400).json({ message: 'Server ID atau Perintah tidak valid.' });
+
+    if (!serverId || !command || !validCommands.includes(command)) {
+        return res.status(400).json({ message: 'Server ID atau Perintah tidak valid.' });
+    }
+
     try {
+        // Verifikasi kepemilikan server di database MongoDB kita
         const server = await Server.findOne({ pterodactylServerId: serverId, user: req.user._id });
-        if (!server) return res.status(404).json({ message: 'Server tidak ditemukan atau Anda tidak punya akses.' });
+        if (!server) {
+            return res.status(404).json({ message: 'Server tidak ditemukan atau Anda tidak punya akses.' });
+        }
+
+        // Panggil service Pterodactyl untuk mengirim perintah
         await pteroService.sendServerCommand(serverId, command);
         res.json({ message: `Sinyal ${command.toUpperCase()} berhasil dikirim ke server ${serverId}.` });
-    } catch (error) { console.error(`Error sending command ${command} to server ${serverId}:`, error); res.status(500).json({ message: `Gagal mengirim sinyal: ${error.message}` }); }
+
+    } catch (error) {
+        console.error(`Error sending command ${command} to server ${serverId}:`, error);
+        res.status(500).json({ message: `Gagal mengirim sinyal: ${error.message}` });
+    }
 });
 
 
 // --- ADMIN ENDPOINTS ---
 // @route   GET /api/data/admin/users
 router.get('/admin/users', protect, admin, async (req, res) => { try { const users = await User.find({}).select('-password'); res.json(users); } catch (error) { res.status(500).json({ message: error.message }); } });
+
 // @route   POST /api/data/admin/add-saldo
 router.post('/admin/add-saldo', protect, admin, async (req, res) => { const { username, amount } = req.body; try { const user = await User.findOne({ username }); if (!user) return res.status(404).json({ message: 'Pengguna tidak ditemukan' }); const numericAmount = Number(amount); if (isNaN(numericAmount) || numericAmount <= 0) return res.status(400).json({ message: 'Jumlah saldo tidak valid.' }); user.saldo += numericAmount; user.transaksi += 1; await user.save(); res.json({ message: `Saldo ${username} berhasil ditambah. Saldo baru: ${user.saldo}` }); } catch (error) { res.status(500).json({ message: error.message }); } });
+
 // @route   POST /api/data/admin/products
 router.post('/admin/products', protect, admin, async (req, res) => { const { name, price, description, imageURL, stock } = req.body; try { const existingProduct = await Product.findOne({ name }); if (existingProduct) return res.status(400).json({ message: 'Nama produk sudah digunakan.' }); const product = await Product.create({ name, price, description, imageURL, stock: stock || 0 }); res.status(201).json({ message: 'Produk berhasil ditambahkan!', product }); } catch (error) { res.status(500).json({ message: error.message }); } });
+
 // @route   DELETE /api/data/admin/products/:id
 router.delete('/admin/products/:id', protect, admin, async (req, res) => { try { const product = await Product.findById(req.params.id); if (!product) return res.status(404).json({ message: 'Produk tidak ditemukan.' }); await Product.deleteOne({ _id: req.params.id }); res.json({ message: 'Produk berhasil dihapus.' }); } catch (error) { res.status(500).json({ message: error.message }); } });
+
 // @route   POST /api/data/admin/info
 router.post('/admin/info', protect, admin, async (req, res) => { const { title, content } = req.body; try { if (!title || !content) return res.status(400).json({ message: 'Judul dan isi informasi wajib diisi.' }); const info = await Information.create({ title, content, author: req.user._id }); res.status(201).json({ message: 'Informasi berhasil diposting!', info }); } catch (error) { res.status(500).json({ message: error.message }); } });
 
-module.exports = router;
+module.exports = router; // Pastikan ini ada di baris paling akhir file
