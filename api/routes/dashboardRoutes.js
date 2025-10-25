@@ -54,7 +54,7 @@ router.post('/purchase/pterodactyl', protect, async (req, res) => {
     // 🚨 WAJIB GANTI ID & KONFIGURASI SESUAI PTERODACTYL PANEL ANDA! 🚨
     const EGG_ID_WHATSAPP = 1;      // Ganti ID Egg WA kamu
     const NEST_ID_WHATSAPP = 5;       // Ganti ID Nest WA kamu
-    const ALLOCATION_ID_DEFAULT = 1; // GANTI DENGAN ID Alokasi IP:Port Default YANG TERSEDIA!
+    const ALLOCATION_ID_DEFAULT = 50; // GANTI DENGAN ID Alokasi IP:Port Default YANG TERSEDIA!
 
     // Konfigurasi Default untuk Node.js/WhatsApp Bot (SESUAIKAN!)
     const DOCKER_IMAGE_NODEJS = 'ghcr.io/parkervcp/yolks:nodejs_24'; // Ganti versi Node jika perlu
