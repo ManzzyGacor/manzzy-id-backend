@@ -1,7 +1,7 @@
 {
   "name": "manzzy-id-backend",
   "version": "1.0.0",
-  "description": "Backend Manzzy ID Official using Node.js and MongoDB on Vercel",
+  "description": "Backend Manzzy ID Official Node.js and MongoDB on Vercel",
   "main": "api/index.js",
   "scripts": {
     "start": "node api/index.js",
