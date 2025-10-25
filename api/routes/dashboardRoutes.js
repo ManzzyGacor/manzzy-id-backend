@@ -1,15 +1,15 @@
-// api/routes/dashboardRoutes.js (Paket Server Node WA - Tanpa Environment)
+// api/routes/dashboardRoutes.js (LENGKAP FINAL - Dengan Semua Fitur & Ptero Asli)
 const express = require('express');
 const router = express.Router();
 const { protect, admin } = require('../middleware/authMiddleware');
 const User = require('../models/User');
 const Product = require('../models/Product');
 const Information = require('../models/Information');
-const Server = require('../models/Server');
-const pteroService = require('../services/pterodactylService');
+const Server = require('../models/Server'); // Import Model Server
+const pteroService = require('../services/pterodactylService'); // Import Service
 const mongoose = require('mongoose');
 
-// --- USER ENDPOINTS (PROTEsCTED) ---
+// --- USER ENDPOINTS (PROTECTED) ---
 
 // @route   GET /api/data/dashboard-data
 router.get('/dashboard-data', protect, async (req, res) => {
@@ -25,7 +25,6 @@ router.get('/dashboard-data', protect, async (req, res) => {
 
 // @route   POST /api/data/purchase (Pembelian Produk Biasa)
 router.post('/purchase', protect, async (req, res) => {
-    // ... (Logika pembelian produk biasa tetap sama) ...
     const { productId, quantity } = req.body;
     const session = await mongoose.startSession();
     try {
@@ -46,37 +45,36 @@ router.post('/purchase', protect, async (req, res) => {
     } catch (error) { await session.abortTransaction(); res.status(500).json({ message: error.message }); } finally { session.endSession(); }
 });
 
-// @route   POST /api/data/purchase/pterodactyl (PEMBELIAN SERVER PTERODACTYL - Node WhatsApp Tanpa Env)
+// @route   POST /api/data/purchase/pterodactyl (PEMBELIAN SERVER PTERODACTYL)
 router.post('/purchase/pterodactyl', protect, async (req, res) => {
     const { packageId, serverName } = req.body;
     const session = await mongoose.startSession();
 
-    // --- DEFINISI PAKET SERVER ASLI (NODE WA - TANPA ENV) ---
-    // 🚨 WAJIB GANTI ID ALOKASI & VERIFIKASI KONFIGURASI EGG/NEST! 🚨
-    const EGG_ID_WHATSAPP = 1;      // Sesuai permintaan kamu
-    const NEST_ID_WHATSAPP = 5;       // Sesuai permintaan kamu
-    const ALLOCATION_ID_DEFAULT = 1; // GANTI DENGAN ID Alokasi IP:Port Default di Node Anda!
+    // --- DEFINISI PAKET SERVER ASLI (NODE WA DENGAN SEMUA FIELD) ---
+    // 🚨 WAJIB GANTI ID & KONFIGURASI SESUAI PTERODACTYL PANEL ANDA! 🚨
+    const EGG_ID_WHATSAPP = 1;      // Ganti ID Egg WA kamu
+    const NEST_ID_WHATSAPP = 5;       // Ganti ID Nest WA kamu
+    const ALLOCATION_ID_DEFAULT = 1; // GANTI DENGAN ID Alokasi IP:Port Default YANG TERSEDIA!
 
     // Konfigurasi Default untuk Node.js/WhatsApp Bot (SESUAIKAN!)
     const DOCKER_IMAGE_NODEJS = 'ghcr.io/parkervcp/yolks:nodejs_24'; // Ganti versi Node jika perlu
-    const STARTUP_NODEJS = 'if [[ -d .git ]] && [[ {{AUTO_UPDATE}} == "1" ]]; then git pull; fi; if [[ ! -z ${NODE_PACKAGES} ]]; then /usr/local/bin/npm install ${NODE_PACKAGES}; fi; if [[ ! -z ${UNNODE_PACKAGES} ]]; then /usr/local/bin/npm uninstall ${UNNODE_PACKAGES}; fi; if [ -f /home/container/package.json ]; then /usr/local/bin/npm install; fi;  if [[ ! -z ${CUSTOM_ENVIRONMENT_VARIABLES} ]]; then      vars=$(echo ${CUSTOM_ENVIRONMENT_VARIABLES} | tr ";" "\n");      for line in $vars;     do export $line;     done fi;  /usr/local/bin/${CMD_RUN};'; // Ganti index.js jika nama file utama beda
-    // HAPUS: const ENVIRONMENT_WHATSAPP = { ... };
-   const ENVIRONMENT_DEFAULT = {};
-  const FEATURE_LIMITS_DEFAULT = { databases: 0, backups: 1, allocations: 1 }; // Sesuaikan
-    const IO_DEFAULT = 500;
+    const STARTUP_NODEJS = 'if [[ -d .git ]] && [[ {{AUTO_UPDATE}} == "1" ]]; then git pull; fi; if [[ ! -z ${NODE_PACKAGES} ]]; then /usr/local/bin/npm install ${NODE_PACKAGES}; fi; if [[ ! -z ${UNNODE_PACKAGES} ]]; then /usr/local/bin/npm uninstall ${UNNODE_PACKAGES}; fi; if [ -f /home/container/package.json ]; then /usr/local/bin/npm install; fi;  if [[ ! -z ${CUSTOM_ENVIRONMENT_VARIABLES} ]]; then      vars=$(echo ${CUSTOM_ENVIRONMENT_VARIABLES} | tr ";" "\\n");      for line in $vars;     do export $line;     done fi;  /usr/local/bin/${CMD_RUN};';
+    const ENVIRONMENT_DEFAULT = {}; // Kosong jika Egg tidak butuh variabel khusus saat create
+    const FEATURE_LIMITS_DEFAULT = { databases: 0, backups: 1, allocations: 1 }; // Sesuaikan jumlah DB/Backup/Alokasi
+    const IO_DEFAULT = 500; // Default IO Pterodactyl
 
     const SERVER_PACKAGES = {
-        'ram_1gb': { name: 'Panel WA 1GB', price: 1000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 1024, disk: 5120, cpu: 100, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, default_allocation_id: ALLOCATION_ID_DEFAULT, docker_image: DOCKER_IMAGE_NODEJS, startup_command: STARTUP_NODEJS }, // Hapus env
-        'ram_2gb': { name: 'Panel WA 2GB', price: 2000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 2048, disk: 10240, cpu: 150, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, default_allocation_id: ALLOCATION_ID_DEFAULT, docker_image: DOCKER_IMAGE_NODEJS, startup_command: STARTUP_NODEJS }, // Hapus env
-        'ram_3gb': { name: 'Panel WA 3GB', price: 3000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 3072, disk: 15360, cpu: 200, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, default_allocation_id: ALLOCATION_ID_DEFAULT, docker_image: DOCKER_IMAGE_NODEJS, startup_command: STARTUP_NODEJS }, // Hapus env
-        'ram_4gb': { name: 'Panel WA 4GB', price: 4000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 4096, disk: 20480, cpu: 250, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, default_allocation_id: ALLOCATION_ID_DEFAULT, docker_image: DOCKER_IMAGE_NODEJS, startup_command: STARTUP_NODEJS }, // Hapus env
-        'ram_5gb': { name: 'Panel WA 5GB', price: 5000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 5120, disk: 25600, cpu: 300, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, default_allocation_id: ALLOCATION_ID_DEFAULT, docker_image: DOCKER_IMAGE_NODEJS, startup_command: STARTUP_NODEJS }, // Hapus env
-        'ram_6gb': { name: 'Panel WA 6GB', price: 6000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 6144, disk: 30720, cpu: 350, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, default_allocation_id: ALLOCATION_ID_DEFAULT, docker_image: DOCKER_IMAGE_NODEJS, startup_command: STARTUP_NODEJS }, // Hapus env
-        'ram_7gb': { name: 'Panel WA 7GB', price: 7000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 7168, disk: 35840, cpu: 400, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, default_allocation_id: ALLOCATION_ID_DEFAULT, docker_image: DOCKER_IMAGE_NODEJS, startup_command: STARTUP_NODEJS }, // Hapus env
-        'ram_8gb': { name: 'Panel WA 8GB', price: 8000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 8192, disk: 40960, cpu: 450, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, default_allocation_id: ALLOCATION_ID_DEFAULT, docker_image: DOCKER_IMAGE_NODEJS, startup_command: STARTUP_NODEJS }, // Hapus env
-        'ram_9gb': { name: 'Panel WA 9GB', price: 9000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 9216, disk: 46080, cpu: 500, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, default_allocation_id: ALLOCATION_ID_DEFAULT, docker_image: DOCKER_IMAGE_NODEJS, startup_command: STARTUP_NODEJS }, // Hapus env
-        'ram_10gb': { name: 'Panel WA 10GB', price: 9500, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 10240, disk: 51200, cpu: 550, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, default_allocation_id: ALLOCATION_ID_DEFAULT, docker_image: DOCKER_IMAGE_NODEJS, startup_command: STARTUP_NODEJS }, // Hapus env
-        'ram_unlimited': { name: 'Panel WA Unlimited', price: 10000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 0, disk: 0, cpu: 0, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, default_allocation_id: ALLOCATION_ID_DEFAULT, docker_image: DOCKER_IMAGE_NODEJS, startup_command: STARTUP_NODEJS }, // Hapus env
+        'ram_1gb': { name: 'Node WA 1GB', price: 1000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 1024, disk: 5120, cpu: 100, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, environment: ENVIRONMENT_DEFAULT, default_allocation_id: ALLOCATION_ID_DEFAULT, docker_image: DOCKER_IMAGE_NODEJS, startup_command: STARTUP_NODEJS },
+        'ram_2gb': { name: 'Node WA 2GB', price: 2000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 2048, disk: 10240, cpu: 150, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, environment: ENVIRONMENT_DEFAULT, default_allocation_id: ALLOCATION_ID_DEFAULT, docker_image: DOCKER_IMAGE_NODEJS, startup_command: STARTUP_NODEJS },
+        'ram_3gb': { name: 'Node WA 3GB', price: 3000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 3072, disk: 15360, cpu: 200, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, environment: ENVIRONMENT_DEFAULT, default_allocation_id: ALLOCATION_ID_DEFAULT, docker_image: DOCKER_IMAGE_NODEJS, startup_command: STARTUP_NODEJS },
+        'ram_4gb': { name: 'Node WA 4GB', price: 4000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 4096, disk: 20480, cpu: 250, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, environment: ENVIRONMENT_DEFAULT, default_allocation_id: ALLOCATION_ID_DEFAULT, docker_image: DOCKER_IMAGE_NODEJS, startup_command: STARTUP_NODEJS },
+        'ram_5gb': { name: 'Node WA 5GB', price: 5000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 5120, disk: 25600, cpu: 300, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, environment: ENVIRONMENT_DEFAULT, default_allocation_id: ALLOCATION_ID_DEFAULT, docker_image: DOCKER_IMAGE_NODEJS, startup_command: STARTUP_NODEJS },
+        'ram_6gb': { name: 'Node WA 6GB', price: 6000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 6144, disk: 30720, cpu: 350, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, environment: ENVIRONMENT_DEFAULT, default_allocation_id: ALLOCATION_ID_DEFAULT, docker_image: DOCKER_IMAGE_NODEJS, startup_command: STARTUP_NODEJS },
+        'ram_7gb': { name: 'Node WA 7GB', price: 7000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 7168, disk: 35840, cpu: 400, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, environment: ENVIRONMENT_DEFAULT, default_allocation_id: ALLOCATION_ID_DEFAULT, docker_image: DOCKER_IMAGE_NODEJS, startup_command: STARTUP_NODEJS },
+        'ram_8gb': { name: 'Node WA 8GB', price: 8000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 8192, disk: 40960, cpu: 450, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, environment: ENVIRONMENT_DEFAULT, default_allocation_id: ALLOCATION_ID_DEFAULT, docker_image: DOCKER_IMAGE_NODEJS, startup_command: STARTUP_NODEJS },
+        'ram_9gb': { name: 'Node WA 9GB', price: 9000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 9216, disk: 46080, cpu: 500, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, environment: ENVIRONMENT_DEFAULT, default_allocation_id: ALLOCATION_ID_DEFAULT, docker_image: DOCKER_IMAGE_NODEJS, startup_command: STARTUP_NODEJS },
+        'ram_10gb': { name: 'Node WA 10GB', price: 9500, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 10240, disk: 51200, cpu: 550, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, environment: ENVIRONMENT_DEFAULT, default_allocation_id: ALLOCATION_ID_DEFAULT, docker_image: DOCKER_IMAGE_NODEJS, startup_command: STARTUP_NODEJS },
+        'ram_unlimited': { name: 'Node WA Unlimited', price: 10000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 0, disk: 0, cpu: 0, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, environment: ENVIRONMENT_DEFAULT, default_allocation_id: ALLOCATION_ID_DEFAULT, docker_image: DOCKER_IMAGE_NODEJS, startup_command: STARTUP_NODEJS },
     };
     // ------------------------------------
 
@@ -103,7 +101,7 @@ router.post('/purchase/pterodactyl', protect, async (req, res) => {
         const pteroServerId = await pteroService.createNewServer(
             pteroUser.id,
             serverName.trim(),
-            selectedPackage // Kirim seluruh objek konfigurasi paket (tanpa env)
+            selectedPackage // Mengirim paket LENGKAP
         );
 
         // 4. Simpan Data Server ke Database Anda
@@ -161,7 +159,75 @@ router.post('/server-control', protect, async (req, res) => {
     }
 });
 
-// --- ADMIN ENDPOINTS ---
-// ... (GET /admin/users, POST /admin/add-saldo, POST/DELETE /admin/products, POST /admin/info tetap sama) ...
 
-module.exports = router;
+// --- ADMIN ENDPOINTS ---
+// @route   GET /api/data/admin/users
+router.get('/admin/users', protect, admin, async (req, res) => {
+    try {
+        const users = await User.find({}).select('-password');
+        res.json(users);
+    } catch (error) {
+        console.error("Error fetching all users:", error);
+        res.status(500).json({ message: "Gagal mengambil daftar pengguna." });
+    }
+});
+
+// @route   POST /api/data/admin/add-saldo
+router.post('/admin/add-saldo', protect, admin, async (req, res) => {
+    const { username, amount } = req.body;
+    try {
+        const user = await User.findOne({ username });
+        if (!user) return res.status(404).json({ message: 'Pengguna tidak ditemukan' });
+        const numericAmount = Number(amount);
+        if (isNaN(numericAmount) || numericAmount <= 0) return res.status(400).json({ message: 'Jumlah saldo tidak valid.' });
+        user.saldo += numericAmount;
+        user.transaksi += 1;
+        await user.save();
+        res.json({ message: `Saldo ${username} berhasil ditambah. Saldo baru: ${user.saldo}` });
+    } catch (error) {
+        console.error("Error adding saldo:", error);
+        res.status(500).json({ message: "Gagal menambahkan saldo." });
+    }
+});
+
+// @route   POST /api/data/admin/products
+router.post('/admin/products', protect, admin, async (req, res) => {
+    const { name, price, description, imageURL, stock } = req.body;
+    try {
+        const existingProduct = await Product.findOne({ name });
+        if (existingProduct) return res.status(400).json({ message: 'Nama produk sudah digunakan.' });
+        const product = await Product.create({ name, price, description, imageURL, stock: stock || 0 });
+        res.status(201).json({ message: 'Produk berhasil ditambahkan!', product });
+    } catch (error) {
+        console.error("Error creating product:", error);
+        res.status(500).json({ message: "Gagal menambahkan produk." });
+    }
+});
+
+// @route   DELETE /api/data/admin/products/:id
+router.delete('/admin/products/:id', protect, admin, async (req, res) => {
+    try {
+        const product = await Product.findById(req.params.id);
+        if (!product) return res.status(404).json({ message: 'Produk tidak ditemukan.' });
+        await Product.deleteOne({ _id: req.params.id });
+        res.json({ message: 'Produk berhasil dihapus.' });
+    } catch (error) {
+        console.error("Error deleting product:", error);
+        res.status(500).json({ message: "Gagal menghapus produk." });
+    }
+});
+
+// @route   POST /api/data/admin/info
+router.post('/admin/info', protect, admin, async (req, res) => {
+    const { title, content } = req.body;
+    try {
+        if (!title || !content) return res.status(400).json({ message: 'Judul dan isi informasi wajib diisi.' });
+        const info = await Information.create({ title, content, author: req.user._id });
+        res.status(201).json({ message: 'Informasi berhasil diposting!', info });
+    } catch (error) {
+        console.error("Error posting information:", error);
+        res.status(500).json({ message: "Gagal memposting informasi." });
+    }
+});
+
+module.exports = router; // Pastikan ini ada di baris paling akhir file
