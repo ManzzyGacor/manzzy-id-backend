@@ -141,7 +141,7 @@ router.post('/purchase/pterodactyl', protect, async (req, res) => {
             pterodactylServerId: pteroServerId.toString(),
             pterodactylUserId: pteroUserResult.id.toString(),
             renewalDate: new Date(new Date().setMonth(new Date().getMonth() + 1)),
-            status: 'online'
+            status: 'installing'
         });
         await serverEntry.save({ session });
 
