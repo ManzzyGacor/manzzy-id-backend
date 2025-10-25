@@ -9,7 +9,7 @@ const Server = require('../models/Server');
 const pteroService = require('../services/pterodactylService');
 const mongoose = require('mongoose');
 
-// --- USER ENDPOINTS (PROTECTED) ---
+// --- USER ENDPOINTS (PROTEsCTED) ---
 
 // @route   GET /api/data/dashboard-data
 router.get('/dashboard-data', protect, async (req, res) => {
