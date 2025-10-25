@@ -74,7 +74,7 @@ router.post('/purchase/pterodactyl', protect, async (req, res) => {
         'ram_unlimited': { name: 'Server Unlimited', price: 10000, eggId: EGG_ID_DEFAULT, nestId: NEST_ID_DEFAULT, limits: { memory: 0, disk: 0, cpu: 0, swap: 0 }, default_allocation_id: ALLOCATION_ID_DEFAULT, docker_image: DOCKER_IMAGE_DEFAULT, startup_command: STARTUP_DEFAULT },
         // Anda bisa menambahkan environment, feature_limits per paket jika berbeda
     };
-    // ------------------------------------
+    // ------------------------------------pp
 
     const selectedPackage = SERVER_PACKAGES[packageId];
     if (!selectedPackage) return res.status(404).json({ message: 'Paket server tidak valid.' });
