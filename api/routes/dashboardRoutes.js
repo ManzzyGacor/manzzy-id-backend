@@ -1,4 +1,4 @@
-// api/routes/dashboardRoutes.js (LENGKAP FINAL - 25 Oktober 2025)
+// api/routes/dashboardRoutes.js (LENGKAP FINAL - DIPASTIKAN ADA SALDO)
 const express = require('express');
 const router = express.Router();
 // Pastikan middleware diimport dengan benar
@@ -25,7 +25,10 @@ router.get('/dashboard-data', protect, async (req, res) => {
         return res.status(401).json({ message: 'User tidak terautentikasi dengan benar.' });
     }
 
+    // === BAGIAN PENTING UNTUK SALDO ===
+    // Mengambil data user TERMASUK saldo dan transaksi
     const user = await User.findById(req.user._id).select('-password');
+    // ================================
 
     // Ambil produk yang stoknya lebih dari 0
     const products = await Product.find({ stock: { $gt: 0 } }).select('-createdAt -__v');
@@ -38,17 +41,20 @@ router.get('/dashboard-data', protect, async (req, res) => {
         return res.status(404).json({ message: 'Pengguna tidak ditemukan' });
     }
 
+    // === MEMASTIKAN SALDO & TRANSAKSI DIKIRIM ===
     // Pastikan saldo ada dan merupakan angka, jika tidak default ke 0
     const userSaldo = (typeof user.saldo === 'number') ? user.saldo : 0;
     const userTransaksi = (typeof user.transaksi === 'number') ? user.transaksi : 0;
 
     res.json({
         username: user.username,
-        saldo: userSaldo, // Kirim saldo yang sudah divalidasi
-        transaksi: userTransaksi, // Kirim transaksi yang sudah divalidasi
+        saldo: userSaldo, // <-- Saldo dikirim di sini
+        transaksi: userTransaksi, // <-- Transaksi dikirim di sini
         products,
         information: info
     });
+    // ===========================================
+
   } catch (error) {
       console.error("Error fetching dashboard data:", error);
       res.status(500).json({ message: "Gagal mengambil data dashboard: " + error.message });
@@ -56,66 +62,39 @@ router.get('/dashboard-data', protect, async (req, res) => {
 });
 
 // @route   POST /api/data/purchase (Pembelian Produk Biasa)
-// @desc    Memproses pembelian produk biasa (mengurangi stok hitungan)
 router.post('/purchase', protect, async (req, res) => {
     const { productId, quantity } = req.body;
-    // Validasi input dasar
-    if (!productId || !quantity || quantity <= 0) {
-        return res.status(400).json({ message: 'Data produk atau jumlah tidak valid.' });
-    }
+    if (!productId || !quantity || quantity <= 0) return res.status(400).json({ message: 'Data tidak valid.' });
     const session = await mongoose.startSession();
     try {
         session.startTransaction();
         const product = await Product.findById(productId).session(session);
         const user = await User.findById(req.user._id).session(session);
-
-        if (!product) { await session.abortTransaction(); return res.status(404).json({ message: 'Produk tidak ditemukan.' }); }
-        if (!user) { await session.abortTransaction(); return res.status(404).json({ message: 'User tidak ditemukan.' }); }
-
+        if (!product || !user) { await session.abortTransaction(); return res.status(404).json({ message: 'Produk/User tidak ditemukan.' }); }
         const totalCost = product.price * quantity;
-        if (product.stock < quantity) { await session.abortTransaction(); return res.status(400).json({ message: 'Stok produk tidak mencukupi.' }); }
-        if (user.saldo < totalCost) { await session.abortTransaction(); return res.status(400).json({ message: 'Saldo tidak mencukupi.' }); }
-
-        user.saldo -= totalCost;
-        user.transaksi += 1;
-        product.stock -= quantity;
-
-        await user.save({ session });
-        await product.save({ session });
+        if (product.stock < quantity) { await session.abortTransaction(); return res.status(400).json({ message: 'Stok habis.' }); }
+        if (user.saldo < totalCost) { await session.abortTransaction(); return res.status(400).json({ message: 'Saldo kurang.' }); }
+        user.saldo -= totalCost; user.transaksi += 1; product.stock -= quantity;
+        await user.save({ session }); await product.save({ session });
         await session.commitTransaction();
-        res.json({ message: `Pembelian sukses! ${quantity} unit ${product.name} dikurangi.`, purchaseDetails: { productName: product.name, totalAmount: totalCost } });
-    } catch (error) {
-        await session.abortTransaction();
-        console.error("Error during simple purchase:", error);
-        res.status(500).json({ message: "Gagal memproses pembelian produk: " + error.message });
-    } finally {
-        session.endSession();
-    }
+        res.json({ message: `Sukses! ${quantity} ${product.name} dikurangi.`, purchaseDetails: { productName: product.name, totalAmount: totalCost } });
+    } catch (error) { await session.abortTransaction(); console.error("Purchase Error:", error); res.status(500).json({ message: error.message }); } finally { session.endSession(); }
 });
 
-// @route   POST /api/data/purchase/pterodactyl (PEMBELIAN SERVER PTERODACTYL - Menggunakan Locations & Password Predictable)
-// @desc    Memproses pembelian server Pterodactyl
+// @route   POST /api/data/purchase/pterodactyl (PEMBELIAN SERVER PTERODACTYL - Selalu Buat User Baru)
 router.post('/purchase/pterodactyl', protect, async (req, res) => {
     const { packageId, serverName } = req.body;
-    // Validasi input dasar
-    if (!packageId || !serverName || serverName.trim().length < 3) {
-        return res.status(400).json({ message: 'Paket atau nama server tidak valid (min 3 karakter).' });
-    }
+    if (!packageId || !serverName || serverName.trim().length < 3) return res.status(400).json({ message: 'Paket/Nama server tidak valid.' });
     const session = await mongoose.startSession();
 
-    // --- DEFINISI PAKET SERVER ASLI (NODE WA - Pakai Locations) ---
+    // --- DEFINISI PAKET SERVER ---
     // 🚨 WAJIB GANTI ID & KONFIGURASI SESUAI PTERODACTYL PANEL ANDA! 🚨
-    const EGG_ID_WHATSAPP = 15;      // ID Egg WA kamu
-    const NEST_ID_WHATSAPP = 5;       // ID Nest WA kamu
-    const LOCATION_ID_DEFAULT = 1;    // <<< GANTI DENGAN LOCATION ID KAMU YANG VALID! >>>
-
-    // Konfigurasi Baru untuk Node.js/WhatsApp Bot (SESUAIKAN!)
-    const DOCKER_IMAGE_NODEJS = 'ghcr.io/parkervcp/yolks:nodejs_24'; // Versi Node.js 24
-    const STARTUP_NODEJS = 'if [[ -d .git ]] && [[ {{AUTO_UPDATE}} == "1" ]]; then git pull; fi; if [[ ! -z ${NODE_PACKAGES} ]]; then /usr/local/bin/npm install ${NODE_PACKAGES}; fi; if [[ ! -z ${UNNODE_PACKAGES} ]]; then /usr/local/bin/npm uninstall ${UNNODE_PACKAGES}; fi; if [ -f /home/container/package.json ]; then /usr/local/bin/npm install; fi;  if [[ ! -z ${CUSTOM_ENVIRONMENT_VARIABLES} ]]; then      vars=$(echo ${CUSTOM_ENVIRONMENT_VARIABLES} | tr ";" "\\n");      for line in $vars;     do export $line;     done fi;  /usr/local/bin/${CMD_RUN};';
-    // Environment diisi sesuai kebutuhan Egg (CMD_RUN wajib)
+    const EGG_ID_WHATSAPP = 15;      
+    const NEST_ID_WHATSAPP = 5;       
+    const LOCATION_ID_DEFAULT = 1;    // <<< GANTI DENGAN LOCATION ID KAMU! >>>
     const ENVIRONMENT_DEFAULT = { CMD_RUN: "node index.js" }; // GANTI 'node index.js' JIKA PERLU!
-    const FEATURE_LIMITS_DEFAULT = { databases: 0, backups: 1, allocations: 1 }; // Sesuaikan
-    const IO_DEFAULT = 500; // Default IO Pterodactyl
+    const FEATURE_LIMITS_DEFAULT = { databases: 0, backups: 1, allocations: 1 }; 
+    const IO_DEFAULT = 500; 
 
     const SERVER_PACKAGES = {
         'ram_1gb': { name: 'Node WA 1GB', price: 1000, eggId: EGG_ID_WHATSAPP, nestId: NEST_ID_WHATSAPP, limits: { memory: 1024, disk: 5120, cpu: 100, swap: 0, io: IO_DEFAULT }, feature_limits: FEATURE_LIMITS_DEFAULT, environment: ENVIRONMENT_DEFAULT, locationId: LOCATION_ID_DEFAULT },
@@ -149,18 +128,11 @@ router.post('/purchase/pterodactyl', protect, async (req, res) => {
         // 2. BUAT USER PTERODACTYL BARU (Setiap Saat!)
         const pteroUserResult = await pteroService.createNewPteroUserForServer(user.username, serverName.trim());
         if (!pteroUserResult || !pteroUserResult.id) { throw new Error('Gagal membuat User Pterodactyl baru.'); }
-
-        const pteroCredentials = {
-            username: pteroUserResult.username,
-            password: pteroUserResult.password // Password selalu ada
-        };
+        
+        const pteroCredentials = { username: pteroUserResult.username, password: pteroUserResult.password };
 
         // 3. Buat Server di Pterodactyl (Milik user baru)
-        const pteroServerId = await pteroService.createNewServer(
-            pteroUserResult.id,
-            serverName.trim(),
-            selectedPackage
-        );
+        const pteroServerId = await pteroService.createNewServer( pteroUserResult.id, serverName.trim(), selectedPackage );
 
         // 4. Simpan Data Server ke Database Anda
         const serverEntry = new Server({
@@ -169,17 +141,12 @@ router.post('/purchase/pterodactyl', protect, async (req, res) => {
             pterodactylServerId: pteroServerId.toString(),
             pterodactylUserId: pteroUserResult.id.toString(),
             renewalDate: new Date(new Date().setMonth(new Date().getMonth() + 1)),
-            status: 'installing'
+            status: 'online'
         });
         await serverEntry.save({ session });
 
         await session.commitTransaction();
-
-        res.json({
-            message: `Server ${selectedPackage.name} berhasil dipesan! Akun Pterodactyl baru telah dibuat.`,
-            server: serverEntry,
-            pterodactylCredentials: pteroCredentials
-        });
+        res.json({ message: `Server ${selectedPackage.name} berhasil dipesan! Akun Pterodactyl baru telah dibuat.`, server: serverEntry, pterodactylCredentials: pteroCredentials });
 
     } catch (error) {
         await session.abortTransaction();
@@ -191,59 +158,16 @@ router.post('/purchase/pterodactyl', protect, async (req, res) => {
 });
 
 // @route   GET /api/data/user-servers
-// @desc    Mengambil daftar server Pterodactyl milik user
-router.get('/user-servers', protect, async (req, res) => {
-    try {
-        const servers = await Server.find({ user: req.user._id }).sort({ createdAt: -1 }).select('-__v');
-        res.json(servers);
-    } catch (error) {
-        console.error("Error fetching user servers:", error);
-        res.status(500).json({ message: 'Gagal mengambil daftar server.' });
-    }
-});
+router.get('/user-servers', protect, async (req, res) => { try { const servers = await Server.find({ user: req.user._id }).sort({ createdAt: -1 }).select('-__v'); res.json(servers); } catch (error) { console.error("Error fetching user servers:", error); res.status(500).json({ message: error.message }); } });
 
 // @route   POST /api/data/server-control
-// @desc    Mengirim perintah start/stop/restart ke server Pterodactyl
-router.post('/server-control', protect, async (req, res) => {
-    const { serverId, command } = req.body; // serverId adalah Pterodactyl Server ID (string/number)
-    const validCommands = ['start', 'stop', 'restart', 'kill'];
-
-    if (!serverId || !command || !validCommands.includes(command)) {
-        return res.status(400).json({ message: 'Server ID atau Perintah tidak valid.' });
-    }
-
-    try {
-        // Verifikasi kepemilikan server di database MongoDB kita
-        const server = await Server.findOne({ pterodactylServerId: serverId, user: req.user._id });
-        if (!server) {
-            return res.status(404).json({ message: 'Server tidak ditemukan atau Anda tidak punya akses.' });
-        }
-
-        // Panggil service Pterodactyl untuk mengirim perintah
-        await pteroService.sendServerCommand(serverId, command);
-        res.json({ message: `Sinyal ${command.toUpperCase()} berhasil dikirim ke server ${serverId}.` });
-
-    } catch (error) {
-        console.error(`Error sending command ${command} to server ${serverId}:`, error);
-        res.status(500).json({ message: `Gagal mengirim sinyal: ${error.message}` });
-    }
-});
-
+router.post('/server-control', protect, async (req, res) => { const { serverId, command } = req.body; const validCommands = ['start', 'stop', 'restart', 'kill']; if (!serverId || !command || !validCommands.includes(command)) return res.status(400).json({ message: 'Data tidak valid.' }); try { const server = await Server.findOne({ pterodactylServerId: serverId, user: req.user._id }); if (!server) return res.status(404).json({ message: 'Server tidak ditemukan/akses ditolak.' }); await pteroService.sendServerCommand(serverId, command); res.json({ message: `Sinyal ${command} dikirim.` }); } catch (error) { console.error(`Error sending command ${command}:`, error); res.status(500).json({ message: error.message }); } });
 
 // --- ADMIN ENDPOINTS ---
-// @route   GET /api/data/admin/users
 router.get('/admin/users', protect, admin, async (req, res) => { try { const users = await User.find({}).select('-password'); res.json(users); } catch (error) { res.status(500).json({ message: error.message }); } });
+router.post('/admin/add-saldo', protect, admin, async (req, res) => { const { username, amount } = req.body; try { const user = await User.findOne({ username }); if (!user) return res.status(404).json({ message: 'User tidak ditemukan' }); const numericAmount = Number(amount); if (isNaN(numericAmount) || numericAmount <= 0) return res.status(400).json({ message: 'Jumlah tidak valid.' }); user.saldo += numericAmount; user.transaksi += 1; await user.save(); res.json({ message: `Saldo ${username} ditambah. Saldo baru: ${user.saldo}` }); } catch (error) { res.status(500).json({ message: error.message }); } });
+router.post('/admin/products', protect, admin, async (req, res) => { const { name, price, description, imageURL, stock } = req.body; try { const existingProduct = await Product.findOne({ name }); if (existingProduct) return res.status(400).json({ message: 'Nama produk sudah ada.' }); const product = await Product.create({ name, price, description, imageURL, stock: stock || 0 }); res.status(201).json({ message: 'Produk ditambahkan!', product }); } catch (error) { res.status(500).json({ message: error.message }); } });
+router.delete('/admin/products/:id', protect, admin, async (req, res) => { try { const product = await Product.findById(req.params.id); if (!product) return res.status(404).json({ message: 'Produk tidak ditemukan.' }); await Product.deleteOne({ _id: req.params.id }); res.json({ message: 'Produk dihapus.' }); } catch (error) { res.status(500).json({ message: error.message }); } });
+router.post('/admin/info', protect, admin, async (req, res) => { const { title, content } = req.body; try { if (!title || !content) return res.status(400).json({ message: 'Judul & isi wajib.' }); const info = await Information.create({ title, content, author: req.user._id }); res.status(201).json({ message: 'Info diposting!', info }); } catch (error) { res.status(500).json({ message: error.message }); } });
 
-// @route   POST /api/data/admin/add-saldo
-router.post('/admin/add-saldo', protect, admin, async (req, res) => { const { username, amount } = req.body; try { const user = await User.findOne({ username }); if (!user) return res.status(404).json({ message: 'Pengguna tidak ditemukan' }); const numericAmount = Number(amount); if (isNaN(numericAmount) || numericAmount <= 0) return res.status(400).json({ message: 'Jumlah saldo tidak valid.' }); user.saldo += numericAmount; user.transaksi += 1; await user.save(); res.json({ message: `Saldo ${username} berhasil ditambah. Saldo baru: ${user.saldo}` }); } catch (error) { res.status(500).json({ message: error.message }); } });
-
-// @route   POST /api/data/admin/products
-router.post('/admin/products', protect, admin, async (req, res) => { const { name, price, description, imageURL, stock } = req.body; try { const existingProduct = await Product.findOne({ name }); if (existingProduct) return res.status(400).json({ message: 'Nama produk sudah digunakan.' }); const product = await Product.create({ name, price, description, imageURL, stock: stock || 0 }); res.status(201).json({ message: 'Produk berhasil ditambahkan!', product }); } catch (error) { res.status(500).json({ message: error.message }); } });
-
-// @route   DELETE /api/data/admin/products/:id
-router.delete('/admin/products/:id', protect, admin, async (req, res) => { try { const product = await Product.findById(req.params.id); if (!product) return res.status(404).json({ message: 'Produk tidak ditemukan.' }); await Product.deleteOne({ _id: req.params.id }); res.json({ message: 'Produk berhasil dihapus.' }); } catch (error) { res.status(500).json({ message: error.message }); } });
-
-// @route   POST /api/data/admin/info
-router.post('/admin/info', protect, admin, async (req, res) => { const { title, content } = req.body; try { if (!title || !content) return res.status(400).json({ message: 'Judul dan isi informasi wajib diisi.' }); const info = await Information.create({ title, content, author: req.user._id }); res.status(201).json({ message: 'Informasi berhasil diposting!', info }); } catch (error) { res.status(500).json({ message: error.message }); } });
-
-module.exports = router; // Pastikan ini ada di baris paling akhir file
+module.exports = router;
