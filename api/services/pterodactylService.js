@@ -1,4 +1,4 @@
-// api/services/pterodactylService.js (SELALU BUAT USER BARU per Server - Password = ptero_username + 123)
+// api/services/pterodactylService.js (User Ptero dari Nama Server (TANPA ACAK), Pass Predictable)
 const axios = require('axios');
 
 // Pastikan variabel ini ada di Environment Variables Vercel kamu
@@ -12,20 +12,12 @@ const pteroApi = axios.create({
     timeout: 15000 // Timeout dinaikkan
 });
 
-/**
- * SELALU Membuat user Pterodactyl BARU untuk setiap server.
- * Username & Password berdasarkan NAMA SERVER.
- * @param {string} websiteUsername - Username user dari website (hanya untuk nama depan)
- * @param {string} serverName - Nama server yang dibeli (untuk username Ptero & password)
- * @returns {Promise<object>} - Objek user Pterodactyl BARU (termasuk id dan password)
- */
 const createNewPteroUserForServer = async (websiteUsername, serverName) => {
-    // Buat username Ptero dari nama server (dibersihkan, maks ~15-30 char) + acak
-    const randomSuffix = Math.random().toString(36).substring(2, 8); // 6 char acak
-    const baseUsername = serverName.replace(/[^a-zA-Z0-9_.]/g, '').substring(0, 15).toLowerCase();
-    const pteroUsername = `${baseUsername}_${randomSuffix}`;
+    // Buat username Ptero dari nama server (dibersihkan, maks ~15-30 char)
+    // TANPA SUFFIX ACAK
+    const pteroUsername = serverName.replace(/[^a-zA-Z0-9_.]/g, '').substring(0, 30).toLowerCase();
 
-    // Buat email dummy unik
+    // Buat email dummy unik (masih pakai username ptero agar unik)
     const pteroEmail = `${pteroUsername}@manzzyid-server.com`;
 
     // **PASSWORD = USERNAME PTERO + 123**
@@ -33,14 +25,14 @@ const createNewPteroUserForServer = async (websiteUsername, serverName) => {
 
     // Validasi dasar username Ptero
     if (!pteroUsername || pteroUsername.length < 3) {
-        throw new Error("Nama server tidak valid untuk dijadikan username Pterodactyl (setelah dibersihkan). Coba nama yang lebih panjang/berbeda.");
+        throw new Error("Nama server tidak valid/terlalu pendek untuk dijadikan username Pterodactyl (setelah dibersihkan).");
     }
 
     try {
         console.log(`Membuat user Pterodactyl baru: ${pteroUsername}`);
         const createUserResponse = await pteroApi.post('/users', {
             email: pteroEmail,
-            username: pteroUsername, // Username Ptero dari nama server + acak
+            username: pteroUsername, // Username Ptero dari nama server
             first_name: websiteUsername, // Nama depan dari username website
             last_name: "Server", // Nama belakang generik
             password: constructedPassword, // Gunakan password konstruksi
@@ -92,7 +84,6 @@ const getEggDetails = async (nestId, eggId) => {
     }
 };
 
-
 /**
  * Membuat server baru di Pterodactyl.
  * (Fungsi ini tidak berubah)
@@ -114,7 +105,6 @@ const createNewServer = async (pteroUserId, serverName, packageConfig) => {
         // Cek CMD_RUN jika startup command membutuhkannya
         if (serverData.startup && serverData.startup.includes('${CMD_RUN}') && !serverData.environment.CMD_RUN) {
              console.warn("Peringatan: Startup command menggunakan ${CMD_RUN} tapi tidak didefinisikan di environment.");
-             // throw new Error("Konfigurasi paket harus menyertakan environment.CMD_RUN"); // Aktifkan jika wajib
         }
         const response = await pteroApi.post('/servers', serverData);
         const newServer = response.data.attributes;
@@ -144,10 +134,8 @@ const sendServerCommand = async (serverId, signal) => {
     }
 };
 
-// Fungsi generateStrongRandomPassword tidak dipakai lagi
-
 module.exports = {
-    createNewPteroUserForServer, // Ganti nama fungsi yang di-export
+    createNewPteroUserForServer, // Pastikan ini yang di-export
     getEggDetails,
     createNewServer,
     sendServerCommand
