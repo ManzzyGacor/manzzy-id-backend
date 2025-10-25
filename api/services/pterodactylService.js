@@ -1,4 +1,4 @@
-// api/services/pterodactylService.js (Password = ptero_username + 123 - TIDAK AMAN!)
+// api/services/pterodactylService.js (SELALU BUAT USER BARU - Password = ptero_username + 123)
 const axios = require('axios');
 
 const PTERO_URL = process.env.PTERO_API_URL + '/api/application';
@@ -11,55 +11,42 @@ const pteroApi = axios.create({
 });
 
 /**
- * Mencari user di Pterodactyl berdasarkan email. Jika tidak ditemukan, buat user baru
- * dengan password = username_pterodactyl + "123".
- * @param {object} user - Objek user dari database MongoDB Anda (harus punya username)
- * @returns {Promise<object>} - Objek user Pterodactyl (termasuk 'id', 'existing', dan 'password' jika baru)
+ * SELALU Membuat user Pterodactyl BARU untuk setiap server.
+ * Menggunakan username acak dan password = username_pterodactyl + "123".
+ * @param {string} websiteUsername - Username user dari website (untuk nama depan)
+ * @param {string} serverName - Nama server yang dibeli (untuk username acak)
+ * @returns {Promise<object>} - Objek user Pterodactyl BARU (termasuk id dan password)
  */
-const getOrCreatePteroUser = async (user) => {
-    // Buat email & username Pterodactyl
-    const userEmail = `${user.username.replace(/[^a-zA-Z0-9]/g, '')}@manzzyid.com`;
-    const pteroUsername = user.username.replace(/[^a-zA-Z0-9_]/g, '').substring(0, 15); // Username Ptero
-    // **PASSWORD BARU (pteroUsername + 123)**
+const createNewPteroUserForServer = async (websiteUsername, serverName) => {
+    // Buat username & email unik acak
+    const randomSuffix = Math.random().toString(36).substring(2, 8);
+    const baseUsername = serverName.replace(/[^a-zA-Z0-9]/g, '').substring(0, 8).toLowerCase();
+    const pteroUsername = `srv_${baseUsername}_${randomSuffix}`;
+    const pteroEmail = `${pteroUsername}@manzzyid-server.com`;
+    // **PASSWORD = USERNAME PTERO + 123**
     const constructedPassword = pteroUsername + "123";
 
     try {
-        // 1. Coba Cari User
-        console.log(`Mencari user Pterodactyl dengan email: ${userEmail} atau username: ${pteroUsername}`);
-        let searchResponse = await pteroApi.get(`/users?filter[email]=${encodeURIComponent(userEmail)}`);
-
-        if (searchResponse.data.data.length > 0) {
-            const existingUser = searchResponse.data.data[0].attributes;
-            console.log(`User Pterodactyl ditemukan (via email): ID ${existingUser.id}`);
-            return { ...existingUser, existing: true }; // Kembalikan tanpa password
-        }
-
-        searchResponse = await pteroApi.get(`/users?filter[username]=${encodeURIComponent(pteroUsername)}`);
-        if (searchResponse.data.data.length > 0) {
-            const existingUser = searchResponse.data.data[0].attributes;
-            console.log(`User Pterodactyl ditemukan (via username): ID ${existingUser.id}`);
-            return { ...existingUser, existing: true }; // Kembalikan tanpa password
-        }
-
-        // 2. Buat User Baru
-        console.log(`User Pterodactyl tidak ditemukan, membuat user baru dengan password predictable...`);
-
+        console.log(`Membuat user Pterodactyl baru: ${pteroUsername}`);
         const createUserResponse = await pteroApi.post('/users', {
-            email: userEmail,
-            username: pteroUsername, // Gunakan username Ptero
-            first_name: user.username, // Nama depan bisa username asli website
-            last_name: 'User',
-            password: constructedPassword, // <-- Gunakan password konstruksi (pteroUsername + 123)
+            email: pteroEmail,
+            username: pteroUsername, // Username Ptero
+            first_name: websiteUsername, // Nama depan dari username website
+            last_name: "Server",
+            password: constructedPassword, // Gunakan password konstruksi
         });
 
         const newUser = createUserResponse.data.attributes;
         console.log(`User Pterodactyl baru berhasil dibuat: ID ${newUser.id}`);
         // Kembalikan data user BARU termasuk PASSWORD konstruksi
-        return { ...newUser, existing: false, password: constructedPassword };
+        return { ...newUser, password: constructedPassword };
 
     } catch (error) {
-        console.error("Error saat getOrCreatePteroUser:", error.response ? JSON.stringify(error.response.data, null, 2) : error.message);
-        throw new Error('Gagal mencari atau membuat user di Pterodactyl Panel.');
+        console.error("Error saat createNewPteroUserForServer:", error.response ? JSON.stringify(error.response.data, null, 2) : error.message);
+        if (error.response?.data?.errors?.[0]?.code === 'UsernameTakenException' || error.response?.data?.errors?.[0]?.code === 'EmailTakenException') {
+            throw new Error('Gagal membuat user Pterodactyl: Username/Email acak sudah terpakai. Coba lagi.');
+        }
+        throw new Error('Gagal membuat user baru di Pterodactyl Panel.');
     }
 };
 
@@ -68,8 +55,7 @@ const getOrCreatePteroUser = async (user) => {
  * (Fungsi ini tidak berubah)
  */
 const getEggDetails = async (nestId, eggId) => {
-    // ... (Kode getEggDetails tetap sama) ...
-     try {
+    try {
         console.log(`Mengambil detail Egg ID: ${eggId} dari Nest ID: ${nestId}`);
         const response = await pteroApi.get(`/nests/${nestId}/eggs/${eggId}?include=variables`);
         if (!response.data || !response.data.attributes) { throw new Error('Data Egg tidak valid.'); }
@@ -89,13 +75,11 @@ const getEggDetails = async (nestId, eggId) => {
     }
 };
 
-
 /**
  * Membuat server baru di Pterodactyl.
  * (Fungsi ini tidak berubah)
  */
 const createNewServer = async (pteroUserId, serverName, packageConfig) => {
-     // ... (Kode createNewServer tetap sama, menggunakan deploy locations dan egg dinamis) ...
     try {
         console.log(`Membuat server Pterodactyl untuk user ID: ${pteroUserId}, nama: ${serverName}, lokasi: ${packageConfig.locationId}`);
         const eggDetails = await getEggDetails(packageConfig.nestId, packageConfig.eggId);
@@ -127,7 +111,6 @@ const createNewServer = async (pteroUserId, serverName, packageConfig) => {
  * (Fungsi ini tidak berubah)
  */
 const sendServerCommand = async (serverId, signal) => {
-     // ... (Kode sendServerCommand tetap sama) ...
      try {
         console.log(`Mengirim sinyal ${signal} ke server Pterodactyl ID: ${serverId}`);
         await pteroApi.post(`/servers/${serverId}/power`, { signal });
@@ -138,11 +121,12 @@ const sendServerCommand = async (serverId, signal) => {
     }
 };
 
-// Fungsi generateRandomPassword tidak lagi diperlukan
+// Hapus fungsi generateStrongRandomPassword
+// function generateStrongRandomPassword(length = 14) { ... }
 
 module.exports = {
-    getOrCreatePteroUser,
+    createNewPteroUserForServer, // Pastikan ini yang di-export
     getEggDetails,
     createNewServer,
     sendServerCommand
-}; // Pastikan kurung kurawal penutup module.exports ada
+};
