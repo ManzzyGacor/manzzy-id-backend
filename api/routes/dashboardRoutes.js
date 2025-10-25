@@ -58,7 +58,9 @@ router.post('/purchase/pterodactyl', protect, async (req, res) => {
     const LOCATION_ID_DEFAULT = 1;    // <<< GANTI DENGAN LOCATION ID KAMU! >>>
 
     // Konfigurasi Default (Environment KOSONG, Limits, Feature Limits)
-    const ENVIRONMENT_DEFAULT = {};
+    const ENVIRONMENT_DEFAULT = {
+      CMD_RUN: "node index.js"
+    };
     const FEATURE_LIMITS_DEFAULT = { databases: 0, backups: 1, allocations: 1 }; // Sesuaikan
     const IO_DEFAULT = 500;
 
