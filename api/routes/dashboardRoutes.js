@@ -52,13 +52,13 @@ router.post('/purchase/pterodactyl', protect, async (req, res) => {
 
     // --- DEFINISI PAKET SERVER ASLI ---
     // 🚨 WAJIB GANTI ID BERIKUT DENGAN ID ASLI DARI PTERODACTYL PANEL ANDA! 🚨
-    const EGG_ID_DEFAULT = 1;      // Ganti dengan ID Egg yang sesuai (misal: Minecraft, Node.js)
-    const NEST_ID_DEFAULT = 1;       // Ganti dengan ID Nest yang sesuai
+    const EGG_ID_DEFAULT = 15;      // Ganti dengan ID Egg yang sesuai (misal: Minecraft, Node.js)
+    const NEST_ID_DEFAULT = 5;       // Ganti dengan ID Nest yang sesuai
     const ALLOCATION_ID_DEFAULT = 1; // Ganti dengan ID Alokasi IP:Port Default di Node Anda
 
     // Contoh Docker Image & Startup (Sesuaikan dengan Egg Anda!)
-    const DOCKER_IMAGE_DEFAULT = 'ghcr.io/pterodactyl/yolks:java_17';
-    const STARTUP_DEFAULT = 'java -Xms128M -Xmx{{SERVER_MEMORY}}M -jar server.jar';
+    const DOCKER_IMAGE_DEFAULT = 'ghcr.io/parkervcp/yolks:nodejs_24';
+    const STARTUP_DEFAULT = 'if [[ -d .git ]] && [[ {{AUTO_UPDATE}} == "1" ]]; then git pull; fi; if [[ ! -z ${NODE_PACKAGES} ]]; then /usr/local/bin/npm install ${NODE_PACKAGES}; fi; if [[ ! -z ${UNNODE_PACKAGES} ]]; then /usr/local/bin/npm uninstall ${UNNODE_PACKAGES}; fi; if [ -f /home/container/package.json ]; then /usr/local/bin/npm install; fi;  if [[ ! -z ${CUSTOM_ENVIRONMENT_VARIABLES} ]]; then      vars=$(echo ${CUSTOM_ENVIRONMENT_VARIABLES} | tr ";" "\n");      for line in $vars;     do export $line;     done fi;  /usr/local/bin/${CMD_RUN};';
 
     const SERVER_PACKAGES = {
         'ram_1gb': { name: 'Server 1GB', price: 1000, eggId: EGG_ID_DEFAULT, nestId: NEST_ID_DEFAULT, limits: { memory: 1024, disk: 5120, cpu: 100, swap: 0 }, default_allocation_id: ALLOCATION_ID_DEFAULT, docker_image: DOCKER_IMAGE_DEFAULT, startup_command: STARTUP_DEFAULT },
