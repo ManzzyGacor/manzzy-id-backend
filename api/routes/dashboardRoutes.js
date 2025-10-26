@@ -80,11 +80,49 @@ router.post('/purchase', protect, async (req, res) => {
         res.json({ message: `Sukses! ${quantity} ${product.name} dikurangi.`, purchaseDetails: { productName: product.name, totalAmount: totalCost } });
     } catch (error) { await session.abortTransaction(); console.error("Purchase Error:", error); res.status(500).json({ message: error.message }); } finally { session.endSession(); }
 });
+// api/routes/dashboardRoutes.js (Tambahkan route ini di antara /purchase dan /purchase/pterodactyl)
 
+// @route   POST /api/data/purchase-simple
+// @desc    Membeli produk biasa (mengurangi stok hitungan)
+router.post('/purchase-simple', protect, async (req, res) => {
+    const { productId, quantity } = req.body;
+    if (!productId || !quantity || quantity <= 0) return res.status(400).json({ message: 'Data produk atau jumlah tidak valid.' });
+    const session = await mongoose.startSession();
+    try {
+        session.startTransaction();
+        const product = await Product.findById(productId).session(session);
+        const user = await User.findById(req.user._id).session(session);
+        
+        if (!product || !user) { await session.abortTransaction(); return res.status(404).json({ message: 'Produk/User tidak ditemukan.' }); }
+        
+        const totalCost = product.price * quantity;
+        
+        if (product.stock < quantity) { await session.abortTransaction(); return res.status(400).json({ message: 'Stok produk tidak mencukupi.' }); }
+        if (user.saldo < totalCost) { await session.abortTransaction(); return res.status(400).json({ message: 'Saldo tidak mencukupi.' }); }
+
+        // Eksekusi transaksi
+        user.saldo -= totalCost; 
+        user.transaksi += 1; 
+        product.stock -= quantity;
+        
+        await user.save({ session });
+        await product.save({ session });
+        await session.commitTransaction();
+        
+        res.json({ message: `Pembelian sukses! ${quantity} unit ${product.name} dikurangi dari stok.`, purchaseDetails: { productName: product.name, totalAmount: totalCost, newSaldo: user.saldo } });
+        
+    } catch (error) { 
+        await session.abortTransaction(); 
+        console.error("Error during simple purchase:", error);
+        res.status(500).json({ message: "Gagal memproses pembelian produk: " + error.message }); 
+    } finally { 
+        session.endSession(); 
+    }
+});
 // @route   POST /api/data/purchase/pterodactyl (PEMBELIAN SERVER PTERODACTYL - Selalu Buat User Baru)
 router.post('/purchase/pterodactyl', protect, async (req, res) => {
     const { packageId, serverName } = req.body;
-    if (!packageId || !serverName || serverName.trim().length < 3) return res.status(400).json({ message: 'Paket/Nama server tidak valid.' });
+    if (!packageId || !serverName || serverName.trim().ength < 3) return res.status(400).json({ message: 'Paket/Nama server tidak valid.' });
     const session = await mongoose.startSession();
 
     // --- DEFINISI PAKET SERVER ---
