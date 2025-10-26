@@ -1,9 +1,11 @@
-// api/routes/paymentRoutes.js (Minimal Top Up Rp 1.000)
+// api/routes/paymentRoutes.js (Versi AMAN dengan Verifikasi Ulang)
 const express = require('express');
 const router = express.Router();
+const axios = require('axios'); // Pastikan axios sudah di-install
 const { protect } = require('../middleware/authMiddleware');
 const User = require('../models/User');
-const crypto = require('crypto'); // Dibutuhkan untuk verifikasi callback
+const PendingTopup = require('../models/PendingTopup'); // Model baru
+const mongoose = require('mongoose');
 
 // --- Endpoint untuk membuat URL redirect Pakasir ---
 // @route   POST /api/payment/create-pakasir
@@ -13,93 +15,139 @@ router.post('/create-pakasir', protect, async (req, res) => {
 
     // 1. Validasi Input (SERVER-SIDE)
     const numericAmount = Number(amount);
-    // === Validasi Minimal 1000 ===
     if (isNaN(numericAmount) || numericAmount < 1000) { 
         return res.status(400).json({ message: 'Jumlah top up tidak valid (minimal Rp 1.000).' });
     }
-    // ========================
 
     // 2. Ambil data dari Environment Variables
     const pakasirSlug = process.env.PAKASIR_SLUG;
     if (!pakasirSlug) {
-        console.error("PAKASIR_SLUG belum di-set di Vercel Environment Variables.");
+        console.error("PAKASIR_SLUG belum di-set.");
         return res.status(500).json({ message: 'Konfigurasi payment gateway belum lengkap.' });
     }
 
     // 3. Buat Order ID unik
     const orderId = `MANZZY-${user._id}-${Date.now()}`; 
     
-    // (Opsional: Simpan orderId, amount, userId, status 'pending' ke DB kamu di sini)
+    try {
+        // 4. SIMPAN Transaksi Pending ke Database kita
+        await PendingTopup.create({
+            userId: user._id,
+            orderId: orderId,
+            amount: numericAmount,
+            status: 'pending'
+        });
 
-    // 4. Buat URL Redirect Pakasir
-    const paymentUrl = `https://app.pakasir.com/pay/${pakasirSlug}/${numericAmount}?order_id=${orderId}&qris_only=1`;
+        // 5. Buat URL Redirect Pakasir
+        const paymentUrl = `https://app.pakasir.com/pay/${pakasirSlug}/${numericAmount}?order_id=${orderId}&qris_only=1`;
 
-    console.log("Mengarahkan user ke Pakasir URL:", paymentUrl);
+        console.log("Mengarahkan user ke Pakasir URL:", paymentUrl);
+        res.json({ paymentUrl: paymentUrl });
 
-    // 5. Kirim URL kembali ke frontend
-    res.json({ paymentUrl: paymentUrl });
+    } catch (error) {
+        console.error("Gagal membuat data PendingTopup:", error);
+        res.status(500).json({ message: 'Gagal mencatat transaksi sebelum redirect.' });
+    }
 });
 
 
 // @route   POST /api/payment/pakasir-callback
-// @desc    Menerima notifikasi webhook dari Pakasir (WAJIB DIBUAT & DIAMANKAN)
+// @desc    Menerima notifikasi webhook dari Pakasir (LOGIKA VERIFIKASI BARU)
 router.post('/pakasir-callback', async (req, res) => {
     const data = req.body;
-    const signature = req.headers['x-pakasir-signature']; 
-    const pakasirSecret = process.env.PAKASIR_SECRET_KEY;
+    const orderId = data.order_id;
 
-    console.log("Menerima Callback Pakasir:", JSON.stringify(data));
+    // Ambil Kunci API & Project/Slug dari Vercel
+    const pakasirApiKey = process.env.PAKASIR_API_KEY; // <-- WAJIB ADA (dari file PHP)
+    const pakasirSlug = process.env.PAKASIR_SLUG;       // <-- WAJIB ADA
 
-    if (!pakasirSecret) {
-        console.error("PAKASIR_SECRET_KEY belum di-set. Callback tidak bisa diverifikasi.");
-        return res.status(500).send('Internal Server Error (No Secret)');
+    console.log("Menerima Callback Pakasir untuk orderId:", orderId);
+
+    if (!pakasirApiKey || !pakasirSlug) {
+        console.error("PAKASIR_API_KEY atau PAKASIR_SLUG belum di-set.");
+        return res.status(500).send('Internal Server Error (Config)');
     }
-    if (!signature) {
-        console.warn("Callback Pakasir diterima TANPA signature.");
-        return res.status(401).send('Invalid request (No Signature)');
+    if (!orderId) {
+        return res.status(400).send('Invalid request (No order_id)');
     }
+
+    let pendingTx = null; // Variabel untuk menyimpan data transaksi pending
 
     try {
-        // 1. Verifikasi Signature (WAJIB - Cek dokumentasi Pakasir caranya)
-        const hmac = crypto.createHmac('sha256', pakasirSecret);
-        const digest = hmac.update(JSON.stringify(req.body)).digest('hex'); 
-
-        if (digest !== signature) {
-            console.warn("Callback Pakasir GAGAL verifikasi signature.");
-            return res.status(401).send('Invalid signature');
-        }
+        // 1. Cari transaksi di DB kita
+        pendingTx = await PendingTopup.findOne({ orderId: orderId });
         
-        console.log("Callback Pakasir signature TERVERIFIKASI.");
+        if (!pendingTx) {
+            console.warn(`Callback untuk orderId ${orderId} tidak ditemukan di DB pending.`);
+            return res.status(404).send('Order ID not found');
+        }
 
-        // 2. Cek Status Pembayaran
-        if (data.status && (data.status.toLowerCase() === 'success' || data.status.toLowerCase() === 'paid')) {
-            const orderId = data.order_id;
-            const amount = Number(data.amount); 
-            
-            // 3. (Opsional) Cek Order ID di DB kamu, pastikan belum diproses
-            
-            // 4. Cari User (parsing dari orderId unik kita)
-            const userId = orderId.split('-')[1]; // Ambil userId dari 'MANZZY-userId-timestamp'
-            const user = await User.findById(userId);
+        // 2. Cek jika sudah diproses
+        if (pendingTx.status === 'completed') {
+            console.log(`Callback untuk orderId ${orderId} sudah diproses sebelumnya.`);
+            return res.status(200).send('OK (Already Processed)');
+        }
 
-            if (user) {
-                // 5. TAMBAH SALDO USER
-                user.saldo += amount;
+        // 3. VERIFIKASI ULANG ke API Pakasir (Cara Aman)
+        const verificationUrl = `https://app.pakasir.com/api/transactiondetail?project=${pakasirSlug}&amount=${pendingTx.amount}&order_id=${orderId}&api_key=${pakasirApiKey}`;
+        
+        console.log(`Memverifikasi ulang ke Pakasir: ${orderId}`);
+        const pakasirResponse = await axios.get(verificationUrl);
+        
+        const txDetail = pakasirResponse.data;
+
+        // 4. Cek Status Asli dari Pakasir
+        // Sesuaikan 'completed' jika Pakasir pakai status lain (misal: 'paid', 'success')
+        if (txDetail.transaction && txDetail.transaction.status.toLowerCase() === 'completed') {
+            
+            console.log(`Verifikasi sukses untuk orderId ${orderId}. Status: COMPLETED.`);
+
+            // 5. Mulai Transaksi Database untuk tambah saldo
+            const session = await mongoose.startSession();
+            session.startTransaction();
+            try {
+                const user = await User.findById(pendingTx.userId).session(session);
+                if (!user) {
+                    throw new Error(`User ID ${pendingTx.userId} tidak ditemukan.`);
+                }
+
+                // Tambah Saldo
+                user.saldo += pendingTx.amount;
                 user.transaksi += 1;
-                await user.save();
-                console.log(`SUKSES: Saldo untuk User ID ${userId} berhasil ditambahkan sebesar ${amount}.`);
-            } else {
-                console.error(`Callback Pakasir sukses, tapi User ID ${userId} dari order ${orderId} tidak ditemukan.`);
+                await user.save({ session });
+
+                // Update status transaksi pending menjadi completed
+                pendingTx.status = 'completed';
+                await pendingTx.save({ session });
+
+                await session.commitTransaction();
+                console.log(`SUKSES: Saldo untuk User ID ${user._id} berhasil ditambahkan sebesar ${pendingTx.amount}.`);
+                
+            } catch (dbError) {
+                await session.abortTransaction();
+                console.error(`Error saat update DB (Callback): ${dbError.message}`);
+                throw dbError; // Lempar error agar ditangkap catch utama
+            } finally {
+                session.endSession();
             }
+
         } else {
-            console.log(`Callback Pakasir diterima untuk order ${data.order_id} dengan status: ${data.status}`);
+            // Jika status dari Pakasir BUKAN 'completed'
+            console.warn(`Verifikasi orderId ${orderId} statusnya BUKAN completed. Status: ${txDetail.transaction?.status}`);
+            pendingTx.status = 'failed'; // Tandai gagal
+            await pendingTx.save();
         }
         
         // 6. Balas ke Pakasir bahwa callback diterima
         res.status(200).send('OK');
 
     } catch (error) {
-        console.error("Error memproses callback Pakasir:", error.message);
+        console.error("Error memproses callback Pakasir:", error.response ? error.response.data : error.message);
+        // Jika transaksi pending ditemukan tapi gagal verif, update status
+        if(pendingTx && pendingTx.status === 'pending') {
+            pendingTx.status = 'failed';
+            await pendingTx.save();
+        }
         res.status(500).send('Internal Server Error');
     }
 });
