@@ -1,10 +1,10 @@
-// api/routes/paymentRoutes.js (Versi AMAN dengan Verifikasi Ulang)
+// api/routes/paymentRoutes.js (VERSI AMAN - Sesuai Dokumentasi Pakasir)
 const express = require('express');
 const router = express.Router();
 const axios = require('axios'); // Pastikan axios sudah di-install
 const { protect } = require('../middleware/authMiddleware');
 const User = require('../models/User');
-const PendingTopup = require('../models/PendingTopup'); // Model baru
+const PendingTopup = require('../models/PendingTopup'); // Pastikan model ini ada
 const mongoose = require('mongoose');
 
 // --- Endpoint untuk membuat URL redirect Pakasir ---
@@ -13,24 +13,21 @@ router.post('/create-pakasir', protect, async (req, res) => {
     const { amount } = req.body;
     const user = req.user; 
 
-    // 1. Validasi Input (SERVER-SIDE)
     const numericAmount = Number(amount);
     if (isNaN(numericAmount) || numericAmount < 1000) { 
         return res.status(400).json({ message: 'Jumlah top up tidak valid (minimal Rp 1.000).' });
     }
 
-    // 2. Ambil data dari Environment Variables
     const pakasirSlug = process.env.PAKASIR_SLUG;
     if (!pakasirSlug) {
         console.error("PAKASIR_SLUG belum di-set.");
-        return res.status(500).json({ message: 'Konfigurasi payment gateway belum lengkap.' });
+        return res.status(500).json({ message: 'Konfigurasi payment gateway belum lengkap (slug).' });
     }
 
-    // 3. Buat Order ID unik
     const orderId = `MANZZY-${user._id}-${Date.now()}`; 
     
     try {
-        // 4. SIMPAN Transaksi Pending ke Database kita
+        // 1. SIMPAN Transaksi Pending ke Database kita
         await PendingTopup.create({
             userId: user._id,
             orderId: orderId,
@@ -38,8 +35,10 @@ router.post('/create-pakasir', protect, async (req, res) => {
             status: 'pending'
         });
 
-        // 5. Buat URL Redirect Pakasir
-        const paymentUrl = `https://app.pakasir.com/pay/${pakasirSlug}/${numericAmount}?order_id=${orderId}&qris_only=1`;
+        // 2. Buat URL Redirect Pakasir
+        // Sesuai file PHP, kita tambahkan redirect URL kembali ke dashboard
+        const redirectUrl = encodeURIComponent(`https://${req.hostname}/dashboard.html`); // Ganti jika domain frontend beda
+        const paymentUrl = `https://app.pakasir.com/pay/${pakasirSlug}/${numericAmount}?order_id=${orderId}&qris_only=1&redirect=${redirectUrl}`;
 
         console.log("Mengarahkan user ke Pakasir URL:", paymentUrl);
         res.json({ paymentUrl: paymentUrl });
@@ -55,14 +54,16 @@ router.post('/create-pakasir', protect, async (req, res) => {
 // @desc    Menerima notifikasi webhook dari Pakasir (LOGIKA VERIFIKASI BARU)
 router.post('/pakasir-callback', async (req, res) => {
     const data = req.body;
-    const orderId = data.order_id;
+    const orderId = data.order_id; // Ambil order_id dari body callback
 
     // Ambil Kunci API & Project/Slug dari Vercel
-    const pakasirApiKey = process.env.PAKASIR_API_KEY; // <-- WAJIB ADA (dari file PHP)
+    const pakasirApiKey = process.env.PAKASIR_API_KEY; // <-- WAJIB ADA (dari Dok E)
     const pakasirSlug = process.env.PAKASIR_SLUG;       // <-- WAJIB ADA
 
     console.log("Menerima Callback Pakasir untuk orderId:", orderId);
 
+    // HAPUS SEMUA LOGIKA VERIFIKASI SIGNATURE (karena kita verifikasi ulang)
+    
     if (!pakasirApiKey || !pakasirSlug) {
         console.error("PAKASIR_API_KEY atau PAKASIR_SLUG belum di-set.");
         return res.status(500).send('Internal Server Error (Config)');
@@ -71,7 +72,7 @@ router.post('/pakasir-callback', async (req, res) => {
         return res.status(400).send('Invalid request (No order_id)');
     }
 
-    let pendingTx = null; // Variabel untuk menyimpan data transaksi pending
+    let pendingTx = null; 
 
     try {
         // 1. Cari transaksi di DB kita
@@ -88,16 +89,16 @@ router.post('/pakasir-callback', async (req, res) => {
             return res.status(200).send('OK (Already Processed)');
         }
 
-        // 3. VERIFIKASI ULANG ke API Pakasir (Cara Aman)
+        // 3. VERIFIKASI ULANG ke API Pakasir (Cara Aman Sesuai Dok E & file PHP)
         const verificationUrl = `https://app.pakasir.com/api/transactiondetail?project=${pakasirSlug}&amount=${pendingTx.amount}&order_id=${orderId}&api_key=${pakasirApiKey}`;
         
         console.log(`Memverifikasi ulang ke Pakasir: ${orderId}`);
-        const pakasirResponse = await axios.get(verificationUrl);
+        const pakasirResponse = await axios.get(verificationUrl); // Panggil API Pakasir
         
         const txDetail = pakasirResponse.data;
 
         // 4. Cek Status Asli dari Pakasir
-        // Sesuaikan 'completed' jika Pakasir pakai status lain (misal: 'paid', 'success')
+        // (Sesuai Dok E, status sukses adalah "completed")
         if (txDetail.transaction && txDetail.transaction.status.toLowerCase() === 'completed') {
             
             console.log(`Verifikasi sukses untuk orderId ${orderId}. Status: COMPLETED.`);
@@ -142,7 +143,7 @@ router.post('/pakasir-callback', async (req, res) => {
         res.status(200).send('OK');
 
     } catch (error) {
-        console.error("Error memproses callback Pakasir:", error.response ? error.response.data : error.message);
+        console.error("Error memproses callback Pakasir:", error.response ? (error.response.data || error.message) : error.message);
         // Jika transaksi pending ditemukan tapi gagal verif, update status
         if(pendingTx && pendingTx.status === 'pending') {
             pendingTx.status = 'failed';
@@ -153,4 +154,4 @@ router.post('/pakasir-callback', async (req, res) => {
 });
 
 
-module.exports = router;
+module.exports = router;                
